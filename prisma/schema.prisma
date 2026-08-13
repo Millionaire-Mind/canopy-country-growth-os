@@ -1,14 +1,41 @@
 // Canopy Country Growth OS — data model
-// SQLite for weekend/local dev. Swap `provider` to "postgresql" and update
-// DATABASE_URL for production; no field changes required.
+// Postgres (Neon, via Vercel's Marketplace integration in production).
+// - `url` should be Neon's pooled connection string (used for normal app queries).
+// - `directUrl` should be Neon's unpooled/direct connection string (used only for
+//   `prisma db push`/migrate, since DDL over a pgbouncer-style pooled connection is
+//   unreliable). See docs/DEPLOYMENT.md.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // rhel-openssl-3.0.x matches Vercel's serverless function runtime (Amazon Linux
+  // 2023); native covers local dev. Without this, Prisma Client can fail to find its
+  // query engine binary specifically when deployed to Vercel.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Authentication — internal staff accounts, distinct from the dealership's own
+// Customer records below. No OAuth/adapter tables: Credentials + JWT sessions
+// don't need them (see docs/DEPLOYMENT.md for why Credentials requires JWT, not
+// database sessions, and how revocation still works despite that).
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
 }
 
 // ---------------------------------------------------------------------------
@@ -34,7 +61,9 @@ model Customer {
   @@map("customers")
 }
 
-// SQLite has no native enum support, so LeadStatus is a validated string.
+// status is a validated string, not a Postgres enum, to keep this a same-shape change
+// from the original SQLite schema (SQLite has no enum type). A real enum is a
+// reasonable future improvement but is out of scope for this production-readiness pass.
 // Valid values: NEW, CONTACTED, ENGAGED, APPOINTMENT, SHOWED, SOLD_RO_OPENED, LOST, NURTURE
 // (enforced in src/app/api/leads/[id]/route.ts and src/components/LeadStatusSelect.tsx).
 model Lead {

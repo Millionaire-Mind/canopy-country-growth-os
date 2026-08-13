@@ -1,23 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME, isValidSessionCookieValue } from "@/lib/auth";
+import NextAuth from "next-auth";
+import { authConfig } from "@/auth.config";
 
-export async function proxy(request: NextRequest) {
-  const isLoginRoute = request.nextUrl.pathname === "/login";
-  const isAuthApi = request.nextUrl.pathname === "/api/login";
-  const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const authenticated = await isValidSessionCookieValue(cookie);
-
-  if (!authenticated && !isLoginRoute && !isAuthApi) {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  if (authenticated && isLoginRoute) {
-    return NextResponse.redirect(new URL("/", request.url));
-  }
-
-  return NextResponse.next();
-}
+// Next 16's renamed middleware.ts. Runs on the Edge runtime, so it uses the
+// Prisma-free half of the Auth.js config (auth.config.ts) — just enough to validate
+// the signed session token and redirect. The database-backed revocation check lives
+// in auth.ts (Node runtime), invoked from the dashboard layout on every page load.
+export const proxy = NextAuth(authConfig).auth;
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],

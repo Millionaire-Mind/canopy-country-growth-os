@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireSession } from "@/lib/require-session";
 
 const VALID_STATUSES = [
   "NEW",
@@ -13,6 +14,9 @@ const VALID_STATUSES = [
 ];
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { session, response } = await requireSession();
+  if (!session) return response;
+
   const { id } = await context.params;
   const body = await request.json();
   const { status, assignedTo } = body ?? {};

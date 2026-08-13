@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { SampleDataBanner } from "@/components/SampleDataBanner";
+import { auth, signOut } from "@/auth";
 
 const NAV = [
   { href: "/", label: "Executive Command Center" },
@@ -11,7 +13,17 @@ const NAV = [
   { href: "/data-health", label: "Data Health" },
 ];
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  // Runs in the Node runtime, so this is the request that actually re-checks the
+  // account's isActive flag against the database (via auth.ts's jwt callback) —
+  // proxy.ts's Edge-runtime check can only validate the token's signature, not
+  // whether the account has since been deactivated. This is what makes revocation
+  // take effect on next page load rather than only at token expiry.
+  const session = await auth();
+  if (!session?.user) {
+    redirect("/login");
+  }
+
   return (
     <div className="min-h-screen">
       <SampleDataBanner />
@@ -23,11 +35,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               Yakima Valley &amp; Central Washington — dream to repurchase
             </div>
           </div>
-          <form action="/api/logout" method="post">
-            <button className="text-xs text-slate-400 hover:text-slate-600" formAction="/api/logout">
-              Sign out
-            </button>
-          </form>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500">{session.user.email}</span>
+            <form
+              action={async () => {
+                "use server";
+                await signOut({ redirectTo: "/login" });
+              }}
+            >
+              <button className="text-xs text-slate-400 hover:text-slate-600">Sign out</button>
+            </form>
+          </div>
         </div>
         <nav className="mt-4 flex flex-wrap gap-1">
           {NAV.map((item) => (

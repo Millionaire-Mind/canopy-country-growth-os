@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { parseCsv } from "@/lib/csv";
+import { requireSession } from "@/lib/require-session";
 
 // V1 CSV lead importer — the documented fallback for any CRM without an API integration
 // (see docs/INTEGRATIONS.md). Expected columns: firstName, lastName, email, phone,
@@ -8,6 +9,9 @@ import { parseCsv } from "@/lib/csv";
 // Unknown/missing source is stored as "UNKNOWN" — never guessed.
 
 export async function POST(request: NextRequest) {
+  const { session, response } = await requireSession();
+  if (!session) return response;
+
   const formData = await request.formData();
   const file = formData.get("file");
 

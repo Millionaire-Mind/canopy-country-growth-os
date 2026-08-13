@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireSession } from "@/lib/require-session";
 
 export async function GET() {
+  const { session, response } = await requireSession();
+  if (!session) return response;
+
   const leads = await prisma.lead.findMany({
     include: { customer: true, appointment: true },
     orderBy: { createdAt: "desc" },
@@ -12,6 +16,9 @@ export async function GET() {
 // Manual single-lead creation, e.g. for a future website-form webhook (see
 // docs/INTEGRATIONS.md). Not wired to any live source in V1.
 export async function POST(request: NextRequest) {
+  const { session, response } = await requireSession();
+  if (!session) return response;
+
   const body = await request.json();
 
   const {
