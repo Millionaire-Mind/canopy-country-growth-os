@@ -1,0 +1,278 @@
+// Canopy Country Growth OS — data model
+// Postgres (Supabase, connected to Vercel via the Supabase-Vercel integration or manual
+// env vars — see docs/DEPLOYMENT.md) in production; any local Postgres in development.
+// - `url` should be Supabase's Transaction Pooler (Supavisor) connection string, port
+//   6543, with `?pgbouncer=true` appended — used for normal app queries. Serverless
+//   functions open/close connections per-invocation, and a transaction-mode pooler is
+//   what keeps that from exhausting Postgres's own connection limit.
+// - `directUrl` should be Supabase's direct connection string, port 5432 — used only for
+//   `prisma migrate`, since DDL and Prisma Migrate's advisory locks aren't reliable over
+//   a pooled/pgbouncer-style connection. See docs/DEPLOYMENT.md.
+
+generator client {
+  provider      = "prisma-client-js"
+  // rhel-openssl-3.0.x matches Vercel's serverless function runtime (Amazon Linux
+  // 2023); native covers local dev. Without this, Prisma Client can fail to find its
+  // query engine binary specifically when deployed to Vercel.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Authentication — internal staff accounts, distinct from the dealership's own
+// Customer records below. No OAuth/adapter tables: Credentials + JWT sessions
+// don't need them (see docs/DEPLOYMENT.md for why Credentials requires JWT, not
+// database sessions, and how revocation still works despite that).
+// ---------------------------------------------------------------------------
+
+model User {
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  name                String?
+  passwordHash        String
+  isActive            Boolean   @default(true)
+  // Login rate limiting (Phase 5) — persisted on the user record rather than in memory
+  // so it's correct across Vercel's multiple serverless instances, not just a single
+  // process. See src/auth.ts.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Core funnel entities
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id                  String   @id @default(cuid())
+  firstName           String
+  lastName             String
+  email               String?
+  phone               String?
+  createdAt            DateTime @default(now())
+  communicationStatus  String   @default("UNKNOWN") // e.g. OPT_IN, OPT_OUT, UNKNOWN
+  isSampleData         Boolean  @default(true)
+
+  leads         Lead[]
+  sales         Sale[]
+  serviceOrders ServiceOrder[]
+  rvs           RvOwnership[]
+  lifecycleEvents LifecycleEvent[]
+
+  @@map("customers")
+}
+
+// status is a validated string, not a Postgres enum, to keep this a same-shape change
+// from the original SQLite schema (SQLite has no enum type). A real enum is a
+// reasonable future improvement but is out of scope for this production-readiness pass.
+// Valid values: NEW, CONTACTED, ENGAGED, APPOINTMENT, SHOWED, SOLD_RO_OPENED, LOST, NURTURE
+// (enforced in src/app/api/leads/[id]/route.ts and src/components/LeadStatusSelect.tsx).
+model Lead {
+  id              String   @id @default(cuid())
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  createdAt       DateTime @default(now())
+  source          String   @default("UNKNOWN") // Google Organic, GBP, Bing, AI Referral, Direct, Facebook, Instagram, TikTok, YouTube, Paid Search, Paid Social, Email, SMS, Referral, Manufacturer, RV Marketplace, Unknown
+  medium          String?
+  campaign        String?
+  landingPage     String?
+  department      String   @default("UNKNOWN") // Sales, Service, Parts, Trade, Canopy
+  interestType     String?  // e.g. "New RV", "Used RV", "Service", "Parts", "Trade Valuation"
+  inventoryId      String?
+  assignedTo       String?
+  firstResponseAt  DateTime?
+  // Set whenever a tracked contact/status action occurs (see src/app/api/leads/[id]/route.ts).
+  // Never backfilled from createdAt — a lead with no tracked contact shows UNKNOWN, not a
+  // fabricated timestamp.
+  lastContactAt    DateTime?
+  status           String   @default("NEW")
+  appointmentId    String?    @unique
+  appointment      Appointment? @relation(fields: [appointmentId], references: [id])
+  outcome          String?
+  lostReason       String?
+  isSampleData     Boolean  @default(true)
+
+  sales Sale[]
+
+  @@map("leads")
+}
+
+model Appointment {
+  id           String   @id @default(cuid())
+  department   String
+  scheduledAt  DateTime
+  showed       Boolean?
+  outcome      String?
+  isSampleData Boolean  @default(true)
+
+  lead Lead?
+
+  @@map("appointments")
+}
+
+model Sale {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id])
+  leadId       String?
+  lead         Lead?    @relation(fields: [leadId], references: [id])
+  inventoryId  String?
+  saleDate     DateTime @default(now())
+  // Decimal, not Float, for money — floating-point binary representation can misround
+  // currency values (see docs/ARCHITECTURE.md §11 production-readiness notes).
+  salePrice    Decimal? @db.Decimal(10, 2)
+  frontGross   Decimal? @db.Decimal(10, 2)
+  fiGross      Decimal? @db.Decimal(10, 2)
+  totalGross   Decimal? @db.Decimal(10, 2)
+  isSampleData Boolean  @default(true)
+
+  @@map("sales")
+}
+
+model ServiceOrder {
+  id              String   @id @default(cuid())
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  rvId            String?
+  rv              RvOwnership? @relation(fields: [rvId], references: [id])
+  openDate        DateTime @default(now())
+  closeDate       DateTime?
+  serviceCategory String   // e.g. Warranty Repair, Winterization, De-winterization, Roof Repair, Solar Install, Hitch Install
+  revenue         Decimal? @db.Decimal(10, 2)
+  grossProfit     Decimal? @db.Decimal(10, 2)
+  isSampleData    Boolean  @default(true)
+
+  @@map("service_orders")
+}
+
+model RvOwnership {
+  id               String   @id @default(cuid())
+  customerId       String
+  customer         Customer @relation(fields: [customerId], references: [id])
+  year             Int?
+  make             String?
+  model            String?
+  purchaseDate     DateTime?
+  purchaseSource   String?
+  warrantyEndDate  DateTime?
+  isSampleData     Boolean  @default(true)
+
+  serviceOrders   ServiceOrder[]
+  lifecycleEvents LifecycleEvent[]
+
+  @@map("rv_ownership")
+}
+
+// ---------------------------------------------------------------------------
+// Demand creation / campaigns
+// ---------------------------------------------------------------------------
+
+model Campaign {
+  id              String   @id @default(cuid())
+  name            String
+  trigger         String
+  audience        String
+  offerMessage    String?
+  channel         String
+  landingPage     String?
+  expectedOutcome String?
+  evidence        String?
+  priority        String?  // DO_NOW, DO_NEXT, TEST, BACKLOG, REJECT
+  measurementPlan String?
+  startDate       DateTime?
+  cost            Decimal?  @db.Decimal(10, 2)
+  leads           Int      @default(0)
+  appointments    Int      @default(0)
+  sales           Int      @default(0)
+  revenue         Decimal?  @db.Decimal(10, 2)
+  grossProfit     Decimal?  @db.Decimal(10, 2)
+  isSampleData    Boolean  @default(true)
+
+  @@map("campaigns")
+}
+
+// ---------------------------------------------------------------------------
+// Demand capture / search
+// ---------------------------------------------------------------------------
+
+model WebPage {
+  id              String   @id @default(cuid())
+  url             String   @unique
+  pageType        String   // e.g. Service, Used/Trade, New/Inventory, Parts, Canopies
+  businessLine    String
+  primaryIntent   String?
+  targetGeography String?
+  isSampleData    Boolean  @default(true)
+
+  searchPerformance SearchPerformance[]
+
+  @@map("web_pages")
+}
+
+model SearchPerformance {
+  id          String   @id @default(cuid())
+  date        DateTime
+  pageId      String
+  page        WebPage  @relation(fields: [pageId], references: [id])
+  query       String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float?
+  position    Float?
+  isSampleData Boolean @default(true)
+
+  @@map("search_performance")
+}
+
+// ---------------------------------------------------------------------------
+// Retention / lifecycle
+// ---------------------------------------------------------------------------
+
+model LifecycleEvent {
+  id                 String   @id @default(cuid())
+  customerId         String
+  customer           Customer @relation(fields: [customerId], references: [id])
+  rvId               String?
+  rv                 RvOwnership? @relation(fields: [rvId], references: [id])
+  eventType          String   // e.g. Onboarding, 30-Day Check, Winterization, De-winterization, Maintenance Interval, Upgrade Opportunity, Satisfaction/Review, Trade Valuation
+  triggerDate        DateTime
+  status             String   @default("PENDING") // PENDING, ELIGIBLE, SENT, COMPLETED, SKIPPED
+  recommendedAction  String?
+  isSampleData       Boolean  @default(true)
+
+  @@map("lifecycle_events")
+}
+
+// ---------------------------------------------------------------------------
+// Trust / fact verification
+// ---------------------------------------------------------------------------
+
+model BusinessFact {
+  id         String   @id @default(cuid())
+  claim      String
+  value      String
+  source     String
+  verifiedAt DateTime?
+  status     String   // VERIFIED, NEEDS_VERIFICATION, DO_NOT_PUBLISH
+
+  @@map("business_facts")
+}
+
+model AuthoritySource {
+  id                 String @id @default(cuid())
+  sourceName         String
+  sourceType         String // Manufacturer Locator, Review Platform, Social Profile, Directory, Local Platform
+  url                String?
+  claimSupported     String
+  verificationStatus String // VERIFIED, NEEDS_VERIFICATION, NOT_YET_CHECKED
+
+  @@map("authority_sources")
+}
