@@ -6,7 +6,7 @@ account. No command-line work is required for the deploy itself; the one CLI ste
 creating your own staff login after the app is live.
 
 Read `docs/ARCHITECTURE.md` §11 first if you want the "why" behind these choices
-(Postgres via Neon, per-user Auth.js accounts) — this doc is just the "how."
+(Postgres via Supabase, per-user Auth.js accounts) — this doc is just the "how."
 
 ---
 
@@ -27,28 +27,38 @@ Read `docs/ARCHITECTURE.md` §11 first if you want the "why" behind these choice
 5. **Do not click Deploy yet** — go to step 2 first, since the app will fail to build
    without a database connection.
 
-## 2. Add the Postgres database (Neon)
+## 2. Add the Postgres database (Supabase)
 
-1. Still inside your new Vercel project, go to the **Storage** tab.
-2. Click **Create Database**.
-3. Choose **Neon** (Serverless Postgres) from the marketplace options.
-4. Pick the **Free** plan (see `docs/ARCHITECTURE.md` §11 / the cost discussion above for
-   why this comfortably covers V1 usage).
-5. Click **Connect** — choose to connect it to your project. Vercel will automatically
-   add Postgres-related environment variables to your project for you.
-6. Go to your project's **Settings → Environment Variables** and find the variables Neon
-   just added (names vary slightly by integration version — look for one that's a
-   *pooled* connection string, usually containing `-pooler` in the hostname, and one that
-   isn't). You need to make sure two specific variable names exist, because that's what
-   this app's code reads:
-   - `DATABASE_URL` — set this to the **pooled** connection string.
-   - `DIRECT_URL` — set this to the **unpooled/direct** connection string.
+You can connect Supabase to Vercel either through Vercel's Marketplace integration (adds
+the env vars for you, still needs the two renamed as below) or by creating the Supabase
+project directly and pasting the connection strings in yourself. Both end at the same
+place: `DATABASE_URL` and `DIRECT_URL` set correctly in Vercel's environment variables.
 
-   If Neon already created variables with these exact names, you're done. If it created
-   differently-named ones (e.g. `POSTGRES_URL` / `POSTGRES_URL_NON_POOLING`), just add
-   two more variables named `DATABASE_URL` and `DIRECT_URL` and paste in the matching
-   values — this app doesn't care what Neon calls its own variables, only what's named
-   `DATABASE_URL` and `DIRECT_URL`.
+1. Create a project at [supabase.com](https://supabase.com) (or, from your Vercel
+   project's **Storage** tab, click **Create Database → Supabase** if it's offered in
+   your Marketplace region — either path creates the same underlying project).
+2. In the Supabase dashboard, go to **Project Settings → Database → Connection string**.
+   Supabase offers three connection types; this app needs two of them:
+   - **Transaction pooler** (Supavisor, port `6543`) — a connection-pooled string meant
+     for exactly this use case: many short-lived serverless function invocations, each
+     opening and closing a connection, without exhausting Postgres's own connection
+     limit. Copy this one for `DATABASE_URL`, and append `?pgbouncer=true` to the end of
+     the string if Supabase's copy button didn't already include it — this tells Prisma
+     the connection is pooled in transaction mode, which disables a prepared-statement
+     optimization that doesn't work reliably over PgBouncer/Supavisor.
+   - **Direct connection** (port `5432`) — a non-pooled connection, needed because
+     `prisma migrate deploy` takes an advisory lock and runs DDL, neither of which is
+     reliable over a transaction-mode pooler. Copy this one for `DIRECT_URL`, with no
+     extra query parameters needed.
+3. In Vercel, go to your project's **Settings → Environment Variables** and add:
+   - `DATABASE_URL` — the Transaction pooler string from above (with `?pgbouncer=true`).
+   - `DIRECT_URL` — the Direct connection string from above.
+
+   If you used Vercel's Supabase Marketplace integration, it will have already added its
+   own variables (typically `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`, or similarly
+   named ones) — this app doesn't read those names, only `DATABASE_URL` and `DIRECT_URL`,
+   so add those two explicitly and point them at the pooled/direct strings as above even
+   if Supabase's own variables already exist alongside them.
 
 ## 3. Add the auth secret
 
@@ -89,9 +99,11 @@ by hand — the database variables came from step 2.
    ```bash
    npm run db:migrate:deploy
    ```
-   This applies every migration in `prisma/migrations/` to your real Neon database, in
-   order, and records which ones have already run — so re-running it later (after pulling
-   a commit with a new migration) only applies what's new, not the whole schema again.
+   This applies every migration in `prisma/migrations/` to your real Supabase database,
+   in order, and records which ones have already run — so re-running it later (after
+   pulling a commit with a new migration) only applies what's new, not the whole schema
+   again. It connects via `DIRECT_URL`, so this step works even though the app itself
+   talks to the database through the pooled `DATABASE_URL`.
 
 ## 5. Create your first login
 
@@ -145,3 +157,9 @@ reason as the initial setup.
 - **"UntrustedHost" or similar Auth.js error:** shouldn't happen (the app sets
   `trustHost: true` for exactly this reason), but if it does, double check `AUTH_SECRET`
   is set in the Production environment specifically, not only Preview/Development.
+- **`prisma migrate deploy` hangs or errors about advisory locks:** `DIRECT_URL` is
+  pointed at the Transaction pooler instead of the Direct connection — migrations need
+  the non-pooled port-`5432` string, not the port-`6543` pooler string.
+- **Random "prepared statement already exists" errors at runtime:** `DATABASE_URL` is
+  missing `?pgbouncer=true`, or is pointed at the Direct connection instead of the
+  Transaction pooler — re-check step 2.

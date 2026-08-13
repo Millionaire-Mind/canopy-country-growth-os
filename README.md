@@ -50,8 +50,8 @@ doesn't have.
 
 ## Getting started
 
-Requires a Postgres database (local Postgres for development, Neon in production — see
-`docs/DEPLOYMENT.md`).
+Requires a Postgres database (local Postgres for development, Supabase in production —
+see `docs/DEPLOYMENT.md`).
 
 ```bash
 npm install
@@ -115,7 +115,7 @@ access this would eventually replace.
 
 ## Tech stack
 
-Next.js 16 (App Router, TypeScript) · Prisma + Postgres (Neon in production, any Postgres
-locally) · Auth.js (Credentials + JWT, per-user accounts) · Tailwind CSS. No external
+Next.js 16 (App Router, TypeScript) · Prisma + Postgres (Supabase in production, any
+Postgres locally) · Auth.js (Credentials + JWT, per-user accounts) · Tailwind CSS. No external
 services beyond the database, no background jobs, no ML pipeline — see
 `docs/ARCHITECTURE.md` §1 for why.

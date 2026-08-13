@@ -3,7 +3,7 @@
 // There is no self-service signup or in-app admin UI by design — this app will hold
 // customer PII and revenue data, so accounts are created deliberately by whoever
 // controls the production database, from their own machine, using DATABASE_URL
-// pointed at the real (Neon) database. Run with: npx tsx scripts/manage-users.ts <command> [...args]
+// pointed at the real (Supabase) database. Run with: npx tsx scripts/manage-users.ts <command> [...args]
 //
 // Commands:
 //   create   --email <email> [--name <name>] [--password <password>]

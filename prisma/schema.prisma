@@ -1,9 +1,13 @@
 // Canopy Country Growth OS — data model
-// Postgres (Neon, via Vercel's Marketplace integration in production).
-// - `url` should be Neon's pooled connection string (used for normal app queries).
-// - `directUrl` should be Neon's unpooled/direct connection string (used only for
-//   `prisma db push`/migrate, since DDL over a pgbouncer-style pooled connection is
-//   unreliable). See docs/DEPLOYMENT.md.
+// Postgres (Supabase, connected to Vercel via the Supabase-Vercel integration or manual
+// env vars — see docs/DEPLOYMENT.md) in production; any local Postgres in development.
+// - `url` should be Supabase's Transaction Pooler (Supavisor) connection string, port
+//   6543, with `?pgbouncer=true` appended — used for normal app queries. Serverless
+//   functions open/close connections per-invocation, and a transaction-mode pooler is
+//   what keeps that from exhausting Postgres's own connection limit.
+// - `directUrl` should be Supabase's direct connection string, port 5432 — used only for
+//   `prisma migrate`, since DDL and Prisma Migrate's advisory locks aren't reliable over
+//   a pooled/pgbouncer-style connection. See docs/DEPLOYMENT.md.
 
 generator client {
   provider      = "prisma-client-js"
