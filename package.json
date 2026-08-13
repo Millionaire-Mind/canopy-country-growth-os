@@ -6,18 +6,20 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
+    "db:reset": "tsx scripts/guard-dev-only.ts && prisma migrate reset --force --skip-seed && tsx prisma/seed.ts",
     "user:create": "tsx scripts/manage-users.ts create",
     "user:list": "tsx scripts/manage-users.ts list",
     "user:activate": "tsx scripts/manage-users.ts activate",
     "user:deactivate": "tsx scripts/manage-users.ts deactivate",
-    "user:delete": "tsx scripts/manage-users.ts delete"
+    "user:delete": "tsx scripts/manage-users.ts delete",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -36,10 +38,13 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.19",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.0",
     "postcss": "^8.5.0",
     "prisma": "^5.20.0",
     "tailwindcss": "^3.4.4",
     "tsx": "^4.16.0",
-    "typescript": "^5.5.2"
+    "typescript": "^5.5.2",
+    "vitest": "^4.1.10"
   }
 }

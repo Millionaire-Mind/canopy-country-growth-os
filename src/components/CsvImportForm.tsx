@@ -3,7 +3,13 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function CsvImportForm() {
+interface CsvImportFormProps {
+  action: string;
+  buttonLabel?: string;
+  columnsHint: string;
+}
+
+export function CsvImportForm({ action, buttonLabel = "Import CSV", columnsHint }: CsvImportFormProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -18,12 +24,12 @@ export function CsvImportForm() {
     const formData = new FormData();
     formData.append("file", file);
 
-    const res = await fetch("/api/leads/import", { method: "POST", body: formData });
+    const res = await fetch(action, { method: "POST", body: formData });
     const result = await res.json();
     setBusy(false);
 
     if (res.ok) {
-      setStatus(`Imported ${result.imported} lead(s).${result.errors.length ? ` ${result.errors.length} row(s) skipped — see console.` : ""}`);
+      setStatus(`Imported ${result.imported} row(s).${result.errors.length ? ` ${result.errors.length} row(s) skipped — see console.` : ""}`);
       if (result.errors.length) console.warn("CSV import errors:", result.errors);
       router.refresh();
     } else {
@@ -36,7 +42,7 @@ export function CsvImportForm() {
   return (
     <div className="text-right">
       <label className="inline-block cursor-pointer rounded-md bg-canopy-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-canopy-600">
-        {busy ? "Importing..." : "Import CSV"}
+        {busy ? "Importing..." : buttonLabel}
         <input
           ref={inputRef}
           type="file"
@@ -47,10 +53,7 @@ export function CsvImportForm() {
         />
       </label>
       {status && <p className="mt-1 max-w-xs text-xs text-slate-500">{status}</p>}
-      <p className="mt-1 text-xs text-slate-400">
-        Columns: firstName, lastName, email, phone, source, department, interestType,
-        landingPage, createdAt
-      </p>
+      <p className="mt-1 text-xs text-slate-400">Columns: {columnsHint}</p>
     </div>
   );
 }

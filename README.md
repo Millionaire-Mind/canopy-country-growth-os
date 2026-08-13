@@ -15,24 +15,38 @@ definition of done for this build. Deploying to Vercel? See `docs/DEPLOYMENT.md`
 
 ## What's included
 
-- **Screen 1 — Executive Command Center** (`/`): revenue funnel, acquisition performance
-  by source, real-data-only opportunity alerts.
+- **Screen 1 — Executive Command Center** (`/`): defaults to real data only, and shows a
+  clearly labeled SAMPLE DATA PREVIEW MODE only when zero real leads exist yet — the two
+  are never blended into one number. Includes the Daily Executive Brief (Money / Leaks /
+  Opportunities / Leads Needing Action / Search / Customer Base / Recommended Action),
+  the revenue funnel with cohort-correct conversion rates (a lead only counts as
+  converted if the same lead both reached the earlier stage and has the later record —
+  see `docs/ARCHITECTURE.md` §10), gross profit broken out by front/F&I/service,
+  acquisition performance by source, opportunity alerts, and the Opportunity Engine (each
+  entry states what/why/evidence/required action/owner/priority/measurement plan).
+- **Weekly Growth Review** (`/weekly-review`): real data only, in the original
+  specification's nine sections — Revenue Performance, Funnel Performance, Acquisition,
+  Demand Capture, Demand Creation, Lead Handling, Retention, Experiments, and Next Three
+  Actions (the same Opportunity Engine ranking as the Daily Brief, not a separate list).
 - **Screen 2 — Lead Command Center** (`/leads`): every lead with source, status, response
-  time, and next action; CSV import for CRM data with no live integration yet.
-- **Screen 3 — Search & Demand Capture** (`/search`): stub — states DATA REQUIRED because
-  Google Search Console isn't connected.
+  time, appointment info, last-contact date, and next action; CSV import for CRM data
+  (size/row/field limits enforced) with no live integration yet.
+- **Screen 3 — Search & Demand Capture** (`/search`): Search Console CSV import fallback;
+  states DATA REQUIRED only until either that import or a live GSC connection exists.
 - **Screen 4 — Campaign Opportunities** (`/campaigns`): opportunity queue shape, seeded
   with two illustrative SAMPLE opportunities (winterization push, aging-inventory
   merchandising) drawn directly from the brief's own event-based-marketing examples.
 - **Screen 5 — Customer Ownership** (`/customers`): RV ownership + service history +
-  lifecycle-event foundation.
+  lifecycle-event foundation, plus Communication Eligibility (opt-in/opt-out/unknown).
 - **Screen 6 — Content & Authority Opportunities** (`/content`): evidence-driven content
-  queue plus the business-fact verification ledger and authority evidence graph.
+  queue (marked PROPOSAL — not published, not measured) plus the business-fact
+  verification ledger and authority evidence graph.
 - **Screen 7 — Data Health** (`/data-health`): integration status for every data source,
   with exactly what's missing and what access would be required to connect it.
 
-Every screen distinguishes real data from SAMPLE DATA (persistent banner + row-level
-badges) and never fabricates a number it doesn't have.
+Every screen distinguishes real data from SAMPLE DATA (a banner that only appears while
+sample data actually exists, plus row-level badges) and never fabricates a number it
+doesn't have.
 
 ## Getting started
 
@@ -42,7 +56,7 @@ Requires a Postgres database (local Postgres for development, Neon in production
 ```bash
 npm install
 cp .env.example .env      # then fill in DATABASE_URL, DIRECT_URL, AUTH_SECRET
-npm run db:push           # syncs prisma/schema.prisma to your Postgres database
+npm run db:migrate:deploy # applies the committed migration history to your Postgres database
 npm run db:seed           # loads SAMPLE DATA + researched business facts
 npm run user:create -- --email you@example.com --name "Your Name"   # prints a one-time password
 npm run dev
@@ -53,10 +67,25 @@ printed. There is no self-service signup — every account is created deliberate
 `user:*` scripts (`npm run user:list` / `user:activate` / `user:deactivate` / `user:delete`),
 since this app holds customer PII. See `docs/DEPLOYMENT.md` for why.
 
-To reset the database back to a clean seeded state at any point: `npm run db:reset`. This
-drops and recreates every table, **including `users`** — you'll need to re-run
-`npm run user:create` afterward. Use it only against your local/dev database, never
+To reset the database back to a clean seeded state at any point:
+`ALLOW_DESTRUCTIVE_RESET=true npm run db:reset`. This drops and recreates every table,
+**including `users`** — you'll need to re-run `npm run user:create` afterward. It refuses
+to run at all under `NODE_ENV=production` or without that explicit `ALLOW_DESTRUCTIVE_RESET`
+flag (see `scripts/guard-dev-only.ts`) — use it only against your local/dev database, never
 against production.
+
+## Running tests
+
+```bash
+npm test          # runs the vitest suite once
+npm run test:watch
+```
+
+Most tests are pure-function unit tests (cohort funnel math, opportunity ranking, CSV
+validation, response-time formatting, the destructive-reset guard) and need no database.
+One integration test (`tests/sample-real-separation.test.ts`) runs the real
+`prisma/seed.ts` script against `DATABASE_URL` and confirms a real record survives — it
+skips itself automatically if no database is configured.
 
 ## Importing real leads
 

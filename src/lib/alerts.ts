@@ -17,13 +17,18 @@ const UNANSWERED_THRESHOLD_HOURS = 4;
 const STALE_LEAD_THRESHOLD_DAYS = 7;
 const RETENTION_WINDOW_DAYS = 14;
 
-export async function getOpportunityAlerts(): Promise<Alert[]> {
+// Defaults to real (isSampleData: false) records only — see the note on
+// getLeadsForMetrics in src/lib/metrics.ts. Pass `sampleOnly: true` only for an
+// explicitly-labeled SAMPLE DATA PREVIEW render.
+export async function getOpportunityAlerts(sampleOnly = false): Promise<Alert[]> {
+  const isSampleData = sampleOnly;
   const alerts: Alert[] = [];
   const now = new Date();
 
   const unansweredCutoff = new Date(now.getTime() - UNANSWERED_THRESHOLD_HOURS * 60 * 60 * 1000);
   const unanswered = await prisma.lead.count({
     where: {
+      isSampleData,
       firstResponseAt: null,
       status: "NEW",
       createdAt: { lte: unansweredCutoff },
@@ -40,6 +45,7 @@ export async function getOpportunityAlerts(): Promise<Alert[]> {
   const staleCutoff = new Date(now.getTime() - STALE_LEAD_THRESHOLD_DAYS * 24 * 60 * 60 * 1000);
   const stale = await prisma.lead.count({
     where: {
+      isSampleData,
       status: { in: ["CONTACTED", "ENGAGED"] },
       createdAt: { lte: staleCutoff },
     },
@@ -55,6 +61,7 @@ export async function getOpportunityAlerts(): Promise<Alert[]> {
   const retentionWindowEnd = new Date(now.getTime() + RETENTION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const upcomingLifecycle = await prisma.lifecycleEvent.count({
     where: {
+      isSampleData,
       status: { in: ["PENDING", "ELIGIBLE"] },
       triggerDate: { lte: retentionWindowEnd },
     },
@@ -68,7 +75,7 @@ export async function getOpportunityAlerts(): Promise<Alert[]> {
   }
 
   const soldWithoutSale = await prisma.lead.count({
-    where: { status: "SOLD_RO_OPENED", sales: { none: {} } },
+    where: { isSampleData, status: "SOLD_RO_OPENED", sales: { none: {} } },
   });
   if (soldWithoutSale > 0) {
     alerts.push({

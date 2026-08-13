@@ -27,13 +27,18 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String?
-  passwordHash String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  name                String?
+  passwordHash        String
+  isActive            Boolean   @default(true)
+  // Login rate limiting (Phase 5) — persisted on the user record rather than in memory
+  // so it's correct across Vercel's multiple serverless instances, not just a single
+  // process. See src/auth.ts.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@map("users")
 }
@@ -80,6 +85,10 @@ model Lead {
   inventoryId      String?
   assignedTo       String?
   firstResponseAt  DateTime?
+  // Set whenever a tracked contact/status action occurs (see src/app/api/leads/[id]/route.ts).
+  // Never backfilled from createdAt — a lead with no tracked contact shows UNKNOWN, not a
+  // fabricated timestamp.
+  lastContactAt    DateTime?
   status           String   @default("NEW")
   appointmentId    String?    @unique
   appointment      Appointment? @relation(fields: [appointmentId], references: [id])
@@ -113,10 +122,12 @@ model Sale {
   lead         Lead?    @relation(fields: [leadId], references: [id])
   inventoryId  String?
   saleDate     DateTime @default(now())
-  salePrice    Float?
-  frontGross   Float?
-  fiGross      Float?
-  totalGross   Float?
+  // Decimal, not Float, for money — floating-point binary representation can misround
+  // currency values (see docs/ARCHITECTURE.md §11 production-readiness notes).
+  salePrice    Decimal? @db.Decimal(10, 2)
+  frontGross   Decimal? @db.Decimal(10, 2)
+  fiGross      Decimal? @db.Decimal(10, 2)
+  totalGross   Decimal? @db.Decimal(10, 2)
   isSampleData Boolean  @default(true)
 
   @@map("sales")
@@ -131,8 +142,8 @@ model ServiceOrder {
   openDate        DateTime @default(now())
   closeDate       DateTime?
   serviceCategory String   // e.g. Warranty Repair, Winterization, De-winterization, Roof Repair, Solar Install, Hitch Install
-  revenue         Float?
-  grossProfit     Float?
+  revenue         Decimal? @db.Decimal(10, 2)
+  grossProfit     Decimal? @db.Decimal(10, 2)
   isSampleData    Boolean  @default(true)
 
   @@map("service_orders")
@@ -173,12 +184,12 @@ model Campaign {
   priority        String?  // DO_NOW, DO_NEXT, TEST, BACKLOG, REJECT
   measurementPlan String?
   startDate       DateTime?
-  cost            Float?
+  cost            Decimal?  @db.Decimal(10, 2)
   leads           Int      @default(0)
   appointments    Int      @default(0)
   sales           Int      @default(0)
-  revenue         Float?
-  grossProfit     Float?
+  revenue         Decimal?  @db.Decimal(10, 2)
+  grossProfit     Decimal?  @db.Decimal(10, 2)
   isSampleData    Boolean  @default(true)
 
   @@map("campaigns")

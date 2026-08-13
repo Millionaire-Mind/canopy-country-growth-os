@@ -74,8 +74,8 @@ by hand — the database variables came from step 2.
    most likely cause is one of the two database environment variables being named wrong
    or missing (see step 2.6).
 3. Once it succeeds, the schema still needs to be created in the new database — Vercel's
-   build does **not** run `prisma db push` automatically (that's intentional: applying
-   schema changes to a live database isn't something that should happen silently on every
+   build does **not** run migrations automatically (that's intentional: applying schema
+   changes to a live database isn't something that should happen silently on every
    deploy). From your own computer:
    ```bash
    git clone https://github.com/Millionaire-Mind/canopy-country-growth-os -b claude/canopy-country-rv-growth-998gm4
@@ -87,9 +87,11 @@ by hand — the database variables came from step 2.
    the one place a real secret needs to briefly exist outside Vercel, on your own machine,
    in a file that's already gitignored). Then run:
    ```bash
-   npm run db:push
+   npm run db:migrate:deploy
    ```
-   This creates all the tables in your real Neon database.
+   This applies every migration in `prisma/migrations/` to your real Neon database, in
+   order, and records which ones have already run — so re-running it later (after pulling
+   a commit with a new migration) only applies what's new, not the whole schema again.
 
 ## 5. Create your first login
 
@@ -126,15 +128,20 @@ skip it once you're importing real leads via CSV.
 ## Ongoing: making code changes after this initial deploy
 
 Every push to whichever branch Vercel is watching triggers a new build automatically —
-you don't need to repeat these steps. Only re-run `npm run db:push` locally if a future
-change modifies `prisma/schema.prisma`.
+you don't need to repeat these steps. If a future change modifies `prisma/schema.prisma`,
+it must come with a new migration committed under `prisma/migrations/` (`npm run
+db:migrate` locally generates one). After that commit deploys, re-run `npm run
+db:migrate:deploy` locally (pointed at the real database) to apply it — the build itself
+still won't run migrations automatically, for the same "not silently, on every deploy"
+reason as the initial setup.
 
 ## Troubleshooting
 
 - **Build fails with a Prisma/query-engine error:** almost always means `DATABASE_URL` or
   `DIRECT_URL` is missing or misnamed in Vercel's environment variables — recheck step 2.
 - **Login page loads but sign-in always fails:** the database exists but has no `users`
-  table yet, or no account exists — rerun step 4's `db:push` and step 5's `user:create`.
+  table yet, or no account exists — rerun step 4's `db:migrate:deploy` and step 5's
+  `user:create`.
 - **"UntrustedHost" or similar Auth.js error:** shouldn't happen (the app sets
   `trustHost: true` for exactly this reason), but if it does, double check `AUTH_SECRET`
   is set in the Production environment specifically, not only Preview/Development.

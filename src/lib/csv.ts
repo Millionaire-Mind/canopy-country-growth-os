@@ -1,6 +1,41 @@
 // Minimal, dependency-free CSV parser. Handles quoted fields and commas within quotes,
 // which covers standard CRM/lead exports without pulling in an external package.
 
+// Bounds on any CSV upload, enforced before rows are touched — an unbounded upload could
+// exhaust memory or turn a single request into a multi-minute row-by-row DB write.
+export const CSV_LIMITS = {
+  maxFileSizeBytes: 2 * 1024 * 1024, // 2MB
+  maxRows: 5000,
+  maxFieldLength: 500,
+};
+
+export class CsvValidationError extends Error {}
+
+export function validateCsvFileSize(file: File): void {
+  if (file.size > CSV_LIMITS.maxFileSizeBytes) {
+    throw new CsvValidationError(
+      `File is ${(file.size / (1024 * 1024)).toFixed(1)}MB, exceeding the ${CSV_LIMITS.maxFileSizeBytes / (1024 * 1024)}MB limit.`
+    );
+  }
+}
+
+export function validateCsvRows(rows: Record<string, string>[]): void {
+  if (rows.length > CSV_LIMITS.maxRows) {
+    throw new CsvValidationError(
+      `CSV has ${rows.length} data rows, exceeding the ${CSV_LIMITS.maxRows}-row limit. Split it into smaller files.`
+    );
+  }
+  for (let i = 0; i < rows.length; i++) {
+    for (const value of Object.values(rows[i])) {
+      if (value.length > CSV_LIMITS.maxFieldLength) {
+        throw new CsvValidationError(
+          `Row ${i + 2}: a field exceeds the ${CSV_LIMITS.maxFieldLength}-character limit.`
+        );
+      }
+    }
+  }
+}
+
 export function parseCsv(text: string): Record<string, string>[] {
   const rows = splitRows(text);
   if (rows.length === 0) return [];

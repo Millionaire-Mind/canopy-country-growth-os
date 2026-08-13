@@ -25,9 +25,19 @@ export default async function ContentAuthorityPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Content Opportunity Queue
-        </h2>
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Content Opportunity Queue
+          </h2>
+          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700">
+            Proposal
+          </span>
+        </div>
+        <p className="mb-3 text-xs text-slate-400">
+          These are proposed content ideas, not published pages or measured performance —
+          nothing below is backed by live traffic or ranking data. Publishing, measurement,
+          and prioritization are human decisions this screen does not automate.
+        </p>
         <div className="space-y-3">
           {CONTENT_OPPORTUNITIES.map((c, i) => (
             <div key={i} className="rounded-lg border border-slate-200 bg-white p-4">

@@ -3,18 +3,18 @@ import { prisma } from "@/lib/db";
 import { parseCsv, validateCsvFileSize, validateCsvRows, CsvValidationError, CSV_LIMITS } from "@/lib/csv";
 import { requireSession } from "@/lib/require-session";
 
-// V1 CSV lead importer — the documented fallback for any CRM without an API integration
-// (see docs/INTEGRATIONS.md). Expected columns: firstName, lastName, email, phone,
-// source, department, interestType, landingPage, createdAt (ISO date, optional).
-// Unknown/missing source is stored as "UNKNOWN" — never guessed.
+// Google Search Console CSV export fallback — used until a live GSC API connection
+// exists (see docs/INTEGRATIONS.md). GSC's own "Export > CSV" from the Performance
+// report uses these column names. Expected columns: url (or page), query, clicks,
+// impressions, ctr, position, date (optional, ISO — defaults to today).
+// pageType/businessLine are not in a GSC export, so a newly-seen url is catalogued as
+// "UNKNOWN" rather than guessed — matching how Lead.source/Lead.department already
+// handle unknown attribution.
 
 export async function POST(request: NextRequest) {
   const { session, response } = await requireSession();
   if (!session) return response;
 
-  // Reject by Content-Length before the multipart body is fully buffered into memory —
-  // the per-file size check below still applies, but this stops a request from being
-  // parsed at all if the whole payload is already implausibly large.
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (contentLength > CSV_LIMITS.maxFileSizeBytes * 2) {
     return NextResponse.json({ error: "Request body too large." }, { status: 413 });
@@ -27,7 +27,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Malformed upload — expected multipart form data." }, { status: 400 });
   }
   const file = formData.get("file");
-
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
   }
@@ -62,52 +61,52 @@ export async function POST(request: NextRequest) {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const firstName = row.firstName?.trim();
-    const lastName = row.lastName?.trim();
+    const url = (row.url || row.page || "").trim();
+    const query = row.query?.trim();
 
-    if (!firstName || !lastName) {
-      errors.push(`Row ${i + 2}: missing firstName or lastName — skipped.`);
+    if (!url || !query) {
+      errors.push(`Row ${i + 2}: missing url/page or query — skipped.`);
       continue;
     }
 
-    const createdAtInput = row.createdAt ? new Date(row.createdAt) : new Date();
-    const createdAt = isNaN(createdAtInput.getTime()) ? new Date() : createdAtInput;
-    if (isNaN(createdAtInput.getTime()) && row.createdAt) {
-      errors.push(`Row ${i + 2}: unparseable createdAt — used current time instead.`);
-    }
+    const clicks = Number(row.clicks) || 0;
+    const impressions = Number(row.impressions) || 0;
+    const ctr = row.ctr && !isNaN(Number(row.ctr)) ? Number(row.ctr) : null;
+    const position = row.position && !isNaN(Number(row.position)) ? Number(row.position) : null;
+    const dateInput = row.date ? new Date(row.date) : new Date();
+    const date = isNaN(dateInput.getTime()) ? new Date() : dateInput;
 
-    // Customer + lead are created together per row so a mid-row failure never leaves an
-    // orphaned customer with no lead attached.
     try {
       await prisma.$transaction(async (tx) => {
-        const customer = await tx.customer.create({
-          data: {
-            firstName,
-            lastName,
-            email: row.email || null,
-            phone: row.phone || null,
+        const page = await tx.webPage.upsert({
+          where: { url },
+          create: {
+            url,
+            pageType: "UNKNOWN",
+            businessLine: "UNKNOWN",
             isSampleData: false,
           },
+          update: {},
         });
 
-        await tx.lead.create({
+        await tx.searchPerformance.create({
           data: {
-            customerId: customer.id,
-            createdAt,
-            source: row.source || "UNKNOWN",
-            department: row.department || "UNKNOWN",
-            interestType: row.interestType || null,
-            landingPage: row.landingPage || null,
+            date,
+            pageId: page.id,
+            query,
+            clicks,
+            impressions,
+            ctr,
+            position,
             isSampleData: false,
           },
         });
       });
       imported += 1;
     } catch {
-      // Never echo raw row content (may contain a customer's PII) back into the response.
       errors.push(`Row ${i + 2}: failed to import — see server logs.`);
     }
   }
 
-  return NextResponse.json({ imported, errors, rowLimit: CSV_LIMITS.maxRows });
+  return NextResponse.json({ imported, errors });
 }

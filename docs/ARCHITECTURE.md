@@ -44,8 +44,9 @@ extend, and deploy without a platform team. No microservices, no queues, no ML p
   readiness pass and why SQLite can't run on Vercel at all). `Lead.status` remains a
   validated string rather than a Postgres enum, to keep that swap minimal.
 - **ORM/migrations:** Prisma (schema-as-code, typed client). Schema changes are applied
-  with `prisma db push` rather than `prisma migrate` — no migration-history tooling for a
-  single-environment V1 this size; see §11 for the tradeoff.
+  with `prisma migrate deploy` against a committed migration history in
+  `prisma/migrations/` — see §11 for why this replaced an earlier `prisma db push`
+  approach.
 - **UI:** React Server Components + Tailwind CSS. No heavy component library — the
   dashboard is tables, numbers, and status badges, not a design showcase.
 - **Auth:** Auth.js (Credentials provider + JWT sessions), per-user staff accounts with no
@@ -216,18 +217,20 @@ connected.
 
 | # | Screen | Route | Status this build |
 |---|---|---|---|
-| 1 | Executive Command Center | `/` | Built — funnel, acquisition table, real-data-only alerts |
-| 2 | Lead Command Center | `/leads` | Built — table, status, response time, filtering, CSV import |
-| 3 | Search & Demand Capture | `/search` | Stub — "DATA REQUIRED" (needs Search Console) |
+| 1 | Executive Command Center | `/` | Built — Daily Executive Brief, cohort-correct funnel, gross profit breakdown, acquisition table, alerts, Opportunity Engine |
+| — | Weekly Growth Review | `/weekly-review` | Built — this-week vs. last-week, same cohort logic as Screen 1 |
+| 2 | Lead Command Center | `/leads` | Built — table, status, response time, appointment info, last contact, filtering, hardened CSV import |
+| 3 | Search & Demand Capture | `/search` | Built — Search Console CSV import fallback; "DATA REQUIRED" only until an import or live connection exists |
 | 4 | Campaign Opportunities | `/campaigns` | Stub — opportunity queue shape shown with SAMPLE rows, engine not automated |
-| 5 | Customer Ownership | `/customers` | Stub — schema-backed table, lifecycle rules not yet encoded |
-| 6 | Content & Authority Opportunities | `/content` | Stub — evidence-driven queue shape, no rows invented |
+| 5 | Customer Ownership | `/customers` | Built — schema-backed table + Communication Eligibility; automatic lifecycle-rule triggers not yet encoded |
+| 6 | Content & Authority Opportunities | `/content` | Built — evidence-driven queue shape, explicitly marked PROPOSAL (not published/measured), no rows invented |
 | 7 | Data Health | `/data-health` | Built — integration status + what's needed per row |
 
-Screens 1, 2, and 7 are "the most important interface" (Phase 3) and the ones a real
-CSV import makes immediately useful — they are fully built. Screens 3–6 are scaffolded
-with the correct data shape and an explicit "DATA REQUIRED" state rather than invented
-numbers, per the instruction to never guess when data are unavailable.
+Screens 1, 2, 3, and 7 are fully built and are what a real CSV import (leads, or a Search
+Console export) makes immediately useful. Screens 4 and 5 have their real data model and
+UI built but stop short of an automated recommendation engine — building one without real
+DMS/inventory-age data to reason over would mean inventing the very numbers this project
+is built to avoid inventing.
 
 ---
 
@@ -278,23 +281,81 @@ numbers, per the instruction to never guess when data are unavailable.
 
 ## 10. Exact definition of done (this build)
 
-This V1 slice is done when, using only seeded SAMPLE DATA (clearly labeled) or a real CSV
-import, a manager opening the app can:
+This is the original brief's Weekend Definition of Done, verbatim — restored here after a
+prior pass had condensed it into an 8-item paraphrase. The paraphrase dropped real
+distinctions the brief actually asked for (e.g. question 12's real-data-vs-unverified-data
+check is not the same claim as question 7's "shows DATA REQUIRED instead of fabricating");
+this is the original, uncompressed:
 
-1. See the revenue funnel with stage-to-stage conversion rates (Screen 1).
-2. See acquisition performance by source, including `UNKNOWN` where attribution doesn't
-   exist (Screen 1).
-3. See real-data-only opportunity alerts, e.g. leads with no human follow-up (Screen 1).
-4. See every lead with source, status, response time, and next action, and filter to
-   leads needing action (Screen 2).
-5. Import a CSV of leads and see them appear in the Lead Command Center with correct
-   status/source, without guessed attribution.
-6. See the integration status of every data source (GA4, Search Console, GBP, CRM, DMS,
-   call tracking, website leads) and, for each disconnected one, what's needed to connect
-   it (Screen 7).
-7. See Screens 3–6 clearly state **DATA REQUIRED** rather than fabricated numbers.
-8. See a persistent, unmissable indicator distinguishing sample data from real data
-   everywhere in the app.
+> V1 is successful when management can open one application and answer:
+>
+> 1. How many opportunities are currently active?
+> 2. Which opportunities need action?
+> 3. Where did those opportunities originate?
+> 4. How quickly were they handled?
+> 5. How many became appointments?
+> 6. How many appointments showed?
+> 7. How many produced a sale or repair order when those data are available?
+> 8. Which acquisition sources appear to produce the strongest business outcomes?
+> 9. Which search pages/queries create commercial opportunities?
+> 10. Which existing customers have legitimate upcoming ownership/service opportunities?
+> 11. What are the three most important growth actions management should take next?
+> 12. Which conclusions are based on real data versus missing/unverified data?
+>
+> If the system cannot answer something because the required dealership data are
+> unavailable, it must say **DATA REQUIRED** rather than guessing.
+
+Where each question is answered in this build:
+
+1. **Active opportunities** — Executive Command Center's Daily Executive Brief (Money /
+   Leaks / Opportunities / Leads Needing Action / Search / Customer Base / Recommended
+   Action sections) and the Opportunity Engine's ranked list, plus the Lead Command
+   Center's "Needs Action" filter.
+2. **Which need action** — Opportunity Engine ranking (`src/lib/opportunities.ts`), each
+   entry stating what/why/evidence/required action/owner/priority, and the Lead Command
+   Center's per-row Next Action column.
+3. **Origin** — every lead carries `source`/`medium`/`landingPage`, shown in the Lead
+   Command Center and the Acquisition Performance table; unattributed leads show
+   `UNKNOWN`, never a guess.
+4. **How quickly handled** — Response Time column (Lead Command Center) and the
+   `lastContactAt`-driven Last Contact column; overdue follow-ups surface in the Daily
+   Brief's Leaks section and Opportunity Alerts.
+5. **Became appointments** — Revenue Funnel's Appointments tile and Lead → Appointment
+   rate, both cohort-counted (a lead only counts once it has a linked appointment).
+6. **Appointments showed** — Revenue Funnel's Shows tile and Appointment → Show rate.
+7. **Produced a sale/RO** — RV Sales and Repair Orders tiles (kept separate, not summed),
+   plus the cohort-correct Show → Close rate — see the note below on why this specific
+   number required a real bug fix.
+8. **Strongest acquisition sources** — Acquisition Performance table, ranked by lead
+   volume with per-source conversion rate, revenue, and gross profit.
+9. **Search pages/queries creating opportunities** — Search & Demand Capture screen;
+   `DATA REQUIRED` until Search Console is connected or a Performance CSV is imported
+   (both paths now exist), then shows business line, intent, and leads/appointments/
+   revenue attributed by an exact `Lead.landingPage` ↔ `WebPage.url` match (`UNKNOWN`
+   where no lead ever landed on that page — never a fabricated attribution model).
+10. **Existing customers with upcoming ownership/service opportunities** — Customer
+    Ownership screen's Next Lifecycle Event / Recommended Action columns and the Weekly
+    Growth Review's Retention section, plus Communication Eligibility so outreach
+    respects opt-out status.
+11. **Three most important growth actions** — the Daily Executive Brief's Recommended
+    Action section and the Weekly Growth Review's Next Three Actions section both surface
+    exactly the top 3 ranked Opportunity Engine entries' required actions — the same
+    evidence-based ranking in both places, not an unrelated hand-picked list.
+12. **Real data vs. missing/unverified data** — the `isSampleData` flag and its per-row
+    "Sample" badges (never a single global toggle); Executive Command Center calculations
+    default to real data only and fall back to an explicitly labeled SAMPLE DATA PREVIEW
+    MODE only when zero real leads exist; `DATA REQUIRED` states everywhere an
+    integration isn't connected; and the Business Fact Verification Ledger's VERIFIED /
+    NEEDS_VERIFICATION / DO_NOT_PUBLISH status per claim.
+
+**The question 7/question 12 bug this pass fixed:** an earlier version of the Revenue
+Funnel computed Show → Close as `sale.count() / appointment.count({showed:true})` — two
+independently-counted tables. If the person who showed and the person who bought were
+different people, that ratio could still read 100%, which is a wrong answer to question 7
+and, worse, silently violates question 12 (it would look like real, confident data when it
+wasn't actually measuring what it claimed to). The fix computes every funnel stage from
+the same cohort of leads — see `computeCohortFunnel` in `src/lib/metrics.ts` and the
+seed's Dana/Priya fixture, which models exactly this mismatch as a regression test.
 
 Anything beyond this (live integrations, autonomous campaigns, lifecycle automation,
 attribution modeling) is explicitly out of scope for this weekend build per the brief.
@@ -311,18 +372,24 @@ writable filesystem — every invocation can land on a different, ephemeral cont
 a SQLite file cannot serve as a shared source of truth in that environment. This isn't a
 tuning issue, it's a hard architectural blocker. The fix: `prisma/schema.prisma`'s
 datasource is now `postgresql`, with two connection strings — `DATABASE_URL` (pooled,
-for normal app queries) and `DIRECT_URL` (unpooled, used only for `prisma db push`, since
-DDL over a pooled/pgbouncer-style connection is unreliable). Production uses Neon,
-provisioned through Vercel's Marketplace integration — see `docs/DEPLOYMENT.md` for exact
-steps. `generator client` also gained `binaryTargets = ["native", "rhel-openssl-3.0.x"]`,
-a known requirement for Prisma's query engine to be found on Vercel's runtime.
+for normal app queries) and `DIRECT_URL` (unpooled, used for migrations, since DDL over a
+pooled/pgbouncer-style connection is unreliable). Production uses Neon, provisioned
+through Vercel's Marketplace integration — see `docs/DEPLOYMENT.md` for exact steps.
+`generator client` also gained `binaryTargets = ["native", "rhel-openssl-3.0.x"]`, a
+known requirement for Prisma's query engine to be found on Vercel's runtime.
 
-Schema changes are applied with `prisma db push` rather than `prisma migrate`. That's a
-deliberate scope call for a single-environment V1 this size — migration-history tooling
-is real value once there's a team coordinating schema changes across environments, but
-adds ceremony this project doesn't need yet. `npm run db:reset` was fixed to match this
-(`prisma migrate reset` silently produced an empty, tableless database with no migrations
-folder to replay — caught during this pass; it now uses `prisma db push --force-reset`).
+Schema changes are applied with `prisma migrate deploy` against a committed migration
+history in `prisma/migrations/`, not `prisma db push`. An earlier pass used `db push` as
+a deliberate scope reduction for a single-environment V1 — but `db push` has no history to
+replay, so there was no way to reconstruct or audit exactly what schema changes had been
+applied to a real database, which matters as soon as that database holds real customer
+data. `npm run db:migrate:deploy` runs `prisma migrate deploy` for production; local
+schema iteration uses `prisma migrate dev` (interactive) as normal. `npm run db:reset`
+now runs `scripts/guard-dev-only.ts` first — a two-factor guard (refuses under
+`NODE_ENV=production`, and refuses unless `ALLOW_DESTRUCTIVE_RESET=true` is explicitly
+set) — before `prisma migrate reset --force --skip-seed`, since a schema-reset command is
+exactly the kind of thing that must never be one accidental `npm run` away from wiping a
+production database.
 
 **Auth: shared password → per-user accounts.** The original single-shared-password gate
 was appropriate for a same-day structural preview with sample data, and was flagged at

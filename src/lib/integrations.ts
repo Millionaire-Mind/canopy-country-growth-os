@@ -23,11 +23,11 @@ export const INTEGRATIONS: IntegrationInfo[] = [
   },
   {
     name: "Google Search Console",
-    status: "NOT_CONNECTED",
-    missingData: "Query, clicks, impressions, CTR, position per page",
+    status: "IMPORT_ONLY",
+    missingData: "Live/recurring sync — each load is a manual point-in-time export",
     whyItMatters: "Needed for Screen 3 — which searches actually produce opportunities",
     accessRequired: "User access on the verified canopycountry.com property",
-    csvFallback: "Partial — manual Performance report export works for a point-in-time load",
+    csvFallback: "Yes — built (Search & Demand Capture → Import Search Console CSV)",
   },
   {
     name: "Google Business Profile",

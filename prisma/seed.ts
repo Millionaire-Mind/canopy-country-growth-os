@@ -2,26 +2,46 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// Everything in this file is either:
-//  (a) SAMPLE DATA — clearly labeled, isSampleData: true, meant to be replaced by a real
-//      CSV import or integration, or
-//  (b) real research findings about Canopy Country RV Center gathered from public web
-//      search on 2026-08-12 (business_facts / authority_sources), each carrying an
-//      honest VERIFIED / NEEDS_VERIFICATION / DO_NOT_PUBLISH status. See
-//      docs/BUSINESS_FACTS.md for the full reasoning behind each row.
+// Everything created by this script is either:
+//  (a) SAMPLE DATA — isSampleData: true, meant to be replaced by real CSV import or
+//      integration, or
+//  (b) real research findings about Canopy Country RV Center (business_facts /
+//      authority_sources), each carrying an honest VERIFIED / NEEDS_VERIFICATION /
+//      DO_NOT_PUBLISH status. See docs/BUSINESS_FACTS.md.
 // No inventory, pricing, or financing figures are invented anywhere in this file.
+//
+// SAFETY: every delete below is scoped to `isSampleData: true`. This script must never
+// be able to remove real dealership data (real leads, customers, sales, etc.) — running
+// it repeatedly only resets the sample/demo fixtures, never real records. It also never
+// touches the `users` table at all; staff accounts are managed exclusively via
+// scripts/manage-users.ts.
+
+if (process.env.NODE_ENV === "production" && process.env.ALLOW_SAMPLE_SEED_IN_PRODUCTION !== "true") {
+  console.error(
+    "Refused: NODE_ENV=production. Seeding demo/sample records into a production " +
+      "database is not something this script does without an explicit override. If you " +
+      "really intend this (e.g. a fresh production database you want demo data in " +
+      "temporarily), set ALLOW_SAMPLE_SEED_IN_PRODUCTION=true."
+  );
+  process.exit(1);
+}
 
 async function main() {
-  await prisma.searchPerformance.deleteMany();
-  await prisma.webPage.deleteMany();
-  await prisma.lifecycleEvent.deleteMany();
-  await prisma.serviceOrder.deleteMany();
-  await prisma.sale.deleteMany();
-  await prisma.lead.deleteMany();
-  await prisma.appointment.deleteMany();
-  await prisma.rvOwnership.deleteMany();
-  await prisma.customer.deleteMany();
-  await prisma.campaign.deleteMany();
+  // Child tables first, respecting foreign keys — all scoped to isSampleData: true.
+  await prisma.searchPerformance.deleteMany({ where: { isSampleData: true } });
+  await prisma.webPage.deleteMany({ where: { isSampleData: true } });
+  await prisma.lifecycleEvent.deleteMany({ where: { isSampleData: true } });
+  await prisma.serviceOrder.deleteMany({ where: { isSampleData: true } });
+  await prisma.sale.deleteMany({ where: { isSampleData: true } });
+  await prisma.lead.deleteMany({ where: { isSampleData: true } });
+  await prisma.appointment.deleteMany({ where: { isSampleData: true } });
+  await prisma.rvOwnership.deleteMany({ where: { isSampleData: true } });
+  await prisma.customer.deleteMany({ where: { isSampleData: true } });
+  await prisma.campaign.deleteMany({ where: { isSampleData: true } });
+
+  // business_facts / authority_sources are this script's own authored research content
+  // (not dealership operational data — no isSampleData concept applies), so they're
+  // fully re-synced on every run rather than filtered.
   await prisma.businessFact.deleteMany();
   await prisma.authoritySource.deleteMany();
 
@@ -134,7 +154,9 @@ async function main() {
   });
 
   // ---------------------------------------------------------------------
-  // SAMPLE DATA — customers, RVs, leads, appointments, sales, service orders
+  // SAMPLE DATA — customers, RVs, leads, appointments, sales, service orders.
+  // Deliberately includes a cohort mismatch (Dana shows, Priya buys, unrelated) so the
+  // funnel's cohort logic can be verified against a false-100%-conversion regression.
   // ---------------------------------------------------------------------
   const customers = await Promise.all(
     [
@@ -144,7 +166,7 @@ async function main() {
       { firstName: "Wade", lastName: "Holcomb", email: "wade.h@example.com", phone: "509-555-0133" },
       { firstName: "Renee", lastName: "Sato", email: "renee.sato@example.com", phone: "509-555-0111" },
       { firstName: "Tobias", lastName: "Kemp", email: "tobias.kemp@example.com", phone: "509-555-0187" },
-    ].map((c) => prisma.customer.create({ data: { ...c, isSampleData: true } }))
+    ].map((c) => prisma.customer.create({ data: { ...c, isSampleData: true, communicationStatus: "OPT_IN" } }))
   );
 
   const [dana, marcus, priya, wade, renee, tobias] = customers;
@@ -166,7 +188,7 @@ async function main() {
   });
 
   // Leads — mix of statuses/sources to make the funnel and alerts meaningful.
-  const leadUnansweredUrgent = await prisma.lead.create({
+  await prisma.lead.create({
     data: {
       customerId: tobias.id,
       createdAt: hoursAgo(30),
@@ -179,11 +201,12 @@ async function main() {
     },
   });
 
-  const leadContactedStale = await prisma.lead.create({
+  await prisma.lead.create({
     data: {
       customerId: renee.id,
       createdAt: daysAgo(12),
       firstResponseAt: daysAgo(11),
+      lastContactAt: daysAgo(11),
       source: "Facebook",
       landingPage: "/all-inventory/",
       department: "Sales",
@@ -194,11 +217,15 @@ async function main() {
     },
   });
 
-  const leadEngagedAppt = await prisma.lead.create({
+  // Dana SHOWED — but does NOT buy. This is the deliberate cohort-mismatch fixture:
+  // without correct cohort logic, a naive sales-count / shows-count ratio would still
+  // look like a "sale" happened for this show, when it didn't.
+  await prisma.lead.create({
     data: {
       customerId: dana.id,
       createdAt: daysAgo(6),
       firstResponseAt: daysAgo(6),
+      lastContactAt: daysAgo(5),
       source: "Google Organic",
       landingPage: "/brand/jayco/",
       department: "Sales",
@@ -210,11 +237,12 @@ async function main() {
     },
   });
 
-  const leadServiceAppt = await prisma.lead.create({
+  await prisma.lead.create({
     data: {
       customerId: marcus.id,
       createdAt: daysAgo(2),
       firstResponseAt: hoursAgo(46),
+      lastContactAt: hoursAgo(46),
       source: "Direct",
       landingPage: "/service/",
       department: "Service",
@@ -226,11 +254,12 @@ async function main() {
     },
   });
 
-  const leadLostNoShow = await prisma.lead.create({
+  await prisma.lead.create({
     data: {
       customerId: wade.id,
       createdAt: daysAgo(15),
       firstResponseAt: daysAgo(14),
+      lastContactAt: daysAgo(14),
       source: "Paid Search",
       landingPage: "/all-inventory/",
       department: "Sales",
@@ -243,11 +272,15 @@ async function main() {
     },
   });
 
+  // Priya BUYS — but has no appointment/show on file at all (e.g. a referral who
+  // negotiated by phone). Her sale must not be credited to Dana's show in the cohort
+  // funnel just because both happened to exist in the same time window.
   const leadSold = await prisma.lead.create({
     data: {
       customerId: priya.id,
       createdAt: daysAgo(20),
       firstResponseAt: daysAgo(19),
+      lastContactAt: daysAgo(3),
       source: "Referral",
       landingPage: "/brand/jay-feather/",
       department: "Sales",
@@ -378,7 +411,7 @@ async function main() {
     ],
   });
 
-  console.log("Seed complete.");
+  console.log("Seed complete (sample/demo records only — real data, if any, untouched).");
 }
 
 main()

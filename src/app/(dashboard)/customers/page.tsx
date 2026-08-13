@@ -8,6 +8,20 @@ function ownershipAge(purchaseDate: Date | null): string {
   return `${(days / 365).toFixed(1)}yr`;
 }
 
+const COMM_STYLE: Record<string, string> = {
+  OPT_IN: "bg-green-100 text-green-800",
+  OPT_OUT: "bg-red-100 text-red-800",
+  UNKNOWN: "bg-slate-100 text-slate-500",
+};
+
+function CommunicationBadge({ status }: { status: string }) {
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${COMM_STYLE[status] ?? COMM_STYLE.UNKNOWN}`}>
+      {status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
 export default async function CustomerOwnershipPage() {
   const rvs = await prisma.rvOwnership.findMany({
     include: {
@@ -42,6 +56,7 @@ export default async function CustomerOwnershipPage() {
                 "Next Lifecycle Event",
                 "Recommended Action",
                 "Status",
+                "Communication Eligibility",
               ].map((h) => (
                 <th key={h} className="whitespace-nowrap px-4 py-2 text-left font-medium text-slate-500">
                   {h}
@@ -52,7 +67,7 @@ export default async function CustomerOwnershipPage() {
           <tbody className="divide-y divide-slate-100">
             {rvs.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={9} className="px-4 py-6 text-center text-slate-400">
                   No RV ownership records yet.
                 </td>
               </tr>
@@ -64,6 +79,11 @@ export default async function CustomerOwnershipPage() {
                 <tr key={rv.id}>
                   <td className="whitespace-nowrap px-4 py-2 font-medium text-slate-700">
                     {rv.customer.firstName} {rv.customer.lastName}
+                    {rv.isSampleData && (
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+                        Sample
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2">
                     {[rv.year, rv.make, rv.model].filter(Boolean).join(" ") || "—"}
@@ -80,6 +100,9 @@ export default async function CustomerOwnershipPage() {
                   </td>
                   <td className="max-w-[220px] px-4 py-2 text-slate-500">{nextEvent?.recommendedAction ?? "—"}</td>
                   <td className="whitespace-nowrap px-4 py-2">{nextEvent?.status ?? "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-2">
+                    <CommunicationBadge status={rv.customer.communicationStatus} />
+                  </td>
                 </tr>
               );
             })}

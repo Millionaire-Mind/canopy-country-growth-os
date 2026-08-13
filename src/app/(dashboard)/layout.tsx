@@ -5,6 +5,7 @@ import { auth, signOut } from "@/auth";
 
 const NAV = [
   { href: "/", label: "Executive Command Center" },
+  { href: "/weekly-review", label: "Weekly Growth Review" },
   { href: "/leads", label: "Lead Command Center" },
   { href: "/search", label: "Search & Demand Capture" },
   { href: "/campaigns", label: "Campaign Opportunities" },
