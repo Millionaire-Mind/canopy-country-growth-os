@@ -1,0 +1,234 @@
+// Canopy Country Growth OS — data model
+// SQLite for weekend/local dev. Swap `provider` to "postgresql" and update
+// DATABASE_URL for production; no field changes required.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Core funnel entities
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id                  String   @id @default(cuid())
+  firstName           String
+  lastName             String
+  email               String?
+  phone               String?
+  createdAt            DateTime @default(now())
+  communicationStatus  String   @default("UNKNOWN") // e.g. OPT_IN, OPT_OUT, UNKNOWN
+  isSampleData         Boolean  @default(true)
+
+  leads         Lead[]
+  sales         Sale[]
+  serviceOrders ServiceOrder[]
+  rvs           RvOwnership[]
+  lifecycleEvents LifecycleEvent[]
+
+  @@map("customers")
+}
+
+// SQLite has no native enum support, so LeadStatus is a validated string.
+// Valid values: NEW, CONTACTED, ENGAGED, APPOINTMENT, SHOWED, SOLD_RO_OPENED, LOST, NURTURE
+// (enforced in src/app/api/leads/[id]/route.ts and src/components/LeadStatusSelect.tsx).
+model Lead {
+  id              String   @id @default(cuid())
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  createdAt       DateTime @default(now())
+  source          String   @default("UNKNOWN") // Google Organic, GBP, Bing, AI Referral, Direct, Facebook, Instagram, TikTok, YouTube, Paid Search, Paid Social, Email, SMS, Referral, Manufacturer, RV Marketplace, Unknown
+  medium          String?
+  campaign        String?
+  landingPage     String?
+  department      String   @default("UNKNOWN") // Sales, Service, Parts, Trade, Canopy
+  interestType     String?  // e.g. "New RV", "Used RV", "Service", "Parts", "Trade Valuation"
+  inventoryId      String?
+  assignedTo       String?
+  firstResponseAt  DateTime?
+  status           String   @default("NEW")
+  appointmentId    String?    @unique
+  appointment      Appointment? @relation(fields: [appointmentId], references: [id])
+  outcome          String?
+  lostReason       String?
+  isSampleData     Boolean  @default(true)
+
+  sales Sale[]
+
+  @@map("leads")
+}
+
+model Appointment {
+  id           String   @id @default(cuid())
+  department   String
+  scheduledAt  DateTime
+  showed       Boolean?
+  outcome      String?
+  isSampleData Boolean  @default(true)
+
+  lead Lead?
+
+  @@map("appointments")
+}
+
+model Sale {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id])
+  leadId       String?
+  lead         Lead?    @relation(fields: [leadId], references: [id])
+  inventoryId  String?
+  saleDate     DateTime @default(now())
+  salePrice    Float?
+  frontGross   Float?
+  fiGross      Float?
+  totalGross   Float?
+  isSampleData Boolean  @default(true)
+
+  @@map("sales")
+}
+
+model ServiceOrder {
+  id              String   @id @default(cuid())
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  rvId            String?
+  rv              RvOwnership? @relation(fields: [rvId], references: [id])
+  openDate        DateTime @default(now())
+  closeDate       DateTime?
+  serviceCategory String   // e.g. Warranty Repair, Winterization, De-winterization, Roof Repair, Solar Install, Hitch Install
+  revenue         Float?
+  grossProfit     Float?
+  isSampleData    Boolean  @default(true)
+
+  @@map("service_orders")
+}
+
+model RvOwnership {
+  id               String   @id @default(cuid())
+  customerId       String
+  customer         Customer @relation(fields: [customerId], references: [id])
+  year             Int?
+  make             String?
+  model            String?
+  purchaseDate     DateTime?
+  purchaseSource   String?
+  warrantyEndDate  DateTime?
+  isSampleData     Boolean  @default(true)
+
+  serviceOrders   ServiceOrder[]
+  lifecycleEvents LifecycleEvent[]
+
+  @@map("rv_ownership")
+}
+
+// ---------------------------------------------------------------------------
+// Demand creation / campaigns
+// ---------------------------------------------------------------------------
+
+model Campaign {
+  id              String   @id @default(cuid())
+  name            String
+  trigger         String
+  audience        String
+  offerMessage    String?
+  channel         String
+  landingPage     String?
+  expectedOutcome String?
+  evidence        String?
+  priority        String?  // DO_NOW, DO_NEXT, TEST, BACKLOG, REJECT
+  measurementPlan String?
+  startDate       DateTime?
+  cost            Float?
+  leads           Int      @default(0)
+  appointments    Int      @default(0)
+  sales           Int      @default(0)
+  revenue         Float?
+  grossProfit     Float?
+  isSampleData    Boolean  @default(true)
+
+  @@map("campaigns")
+}
+
+// ---------------------------------------------------------------------------
+// Demand capture / search
+// ---------------------------------------------------------------------------
+
+model WebPage {
+  id              String   @id @default(cuid())
+  url             String   @unique
+  pageType        String   // e.g. Service, Used/Trade, New/Inventory, Parts, Canopies
+  businessLine    String
+  primaryIntent   String?
+  targetGeography String?
+  isSampleData    Boolean  @default(true)
+
+  searchPerformance SearchPerformance[]
+
+  @@map("web_pages")
+}
+
+model SearchPerformance {
+  id          String   @id @default(cuid())
+  date        DateTime
+  pageId      String
+  page        WebPage  @relation(fields: [pageId], references: [id])
+  query       String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float?
+  position    Float?
+  isSampleData Boolean @default(true)
+
+  @@map("search_performance")
+}
+
+// ---------------------------------------------------------------------------
+// Retention / lifecycle
+// ---------------------------------------------------------------------------
+
+model LifecycleEvent {
+  id                 String   @id @default(cuid())
+  customerId         String
+  customer           Customer @relation(fields: [customerId], references: [id])
+  rvId               String?
+  rv                 RvOwnership? @relation(fields: [rvId], references: [id])
+  eventType          String   // e.g. Onboarding, 30-Day Check, Winterization, De-winterization, Maintenance Interval, Upgrade Opportunity, Satisfaction/Review, Trade Valuation
+  triggerDate        DateTime
+  status             String   @default("PENDING") // PENDING, ELIGIBLE, SENT, COMPLETED, SKIPPED
+  recommendedAction  String?
+  isSampleData       Boolean  @default(true)
+
+  @@map("lifecycle_events")
+}
+
+// ---------------------------------------------------------------------------
+// Trust / fact verification
+// ---------------------------------------------------------------------------
+
+model BusinessFact {
+  id         String   @id @default(cuid())
+  claim      String
+  value      String
+  source     String
+  verifiedAt DateTime?
+  status     String   // VERIFIED, NEEDS_VERIFICATION, DO_NOT_PUBLISH
+
+  @@map("business_facts")
+}
+
+model AuthoritySource {
+  id                 String @id @default(cuid())
+  sourceName         String
+  sourceType         String // Manufacturer Locator, Review Platform, Social Profile, Directory, Local Platform
+  url                String?
+  claimSupported     String
+  verificationStatus String // VERIFIED, NEEDS_VERIFICATION, NOT_YET_CHECKED
+
+  @@map("authority_sources")
+}
