@@ -6,7 +6,7 @@ account. No command-line work is required for the deploy itself; the one CLI ste
 creating your own staff login after the app is live.
 
 Read `docs/ARCHITECTURE.md` §11 first if you want the "why" behind these choices
-(Postgres via Supabase, per-user Auth.js accounts) — this doc is just the "how."
+(Postgres via Prisma Postgres, per-user Auth.js accounts) — this doc is just the "how."
 
 ---
 
@@ -27,38 +27,18 @@ Read `docs/ARCHITECTURE.md` §11 first if you want the "why" behind these choice
 5. **Do not click Deploy yet** — go to step 2 first, since the app will fail to build
    without a database connection.
 
-## 2. Add the Postgres database (Supabase)
+## 2. Add the Postgres database (Prisma Postgres)
 
-You can connect Supabase to Vercel either through Vercel's Marketplace integration (adds
-the env vars for you, still needs the two renamed as below) or by creating the Supabase
-project directly and pasting the connection strings in yourself. Both end at the same
-place: `DATABASE_URL` and `DIRECT_URL` set correctly in Vercel's environment variables.
-
-1. Create a project at [supabase.com](https://supabase.com) (or, from your Vercel
-   project's **Storage** tab, click **Create Database → Supabase** if it's offered in
-   your Marketplace region — either path creates the same underlying project).
-2. In the Supabase dashboard, go to **Project Settings → Database → Connection string**.
-   Supabase offers three connection types; this app needs two of them:
-   - **Transaction pooler** (Supavisor, port `6543`) — a connection-pooled string meant
-     for exactly this use case: many short-lived serverless function invocations, each
-     opening and closing a connection, without exhausting Postgres's own connection
-     limit. Copy this one for `DATABASE_URL`, and append `?pgbouncer=true` to the end of
-     the string if Supabase's copy button didn't already include it — this tells Prisma
-     the connection is pooled in transaction mode, which disables a prepared-statement
-     optimization that doesn't work reliably over PgBouncer/Supavisor.
-   - **Direct connection** (port `5432`) — a non-pooled connection, needed because
-     `prisma migrate deploy` takes an advisory lock and runs DDL, neither of which is
-     reliable over a transaction-mode pooler. Copy this one for `DIRECT_URL`, with no
-     extra query parameters needed.
-3. In Vercel, go to your project's **Settings → Environment Variables** and add:
-   - `DATABASE_URL` — the Transaction pooler string from above (with `?pgbouncer=true`).
-   - `DIRECT_URL` — the Direct connection string from above.
-
-   If you used Vercel's Supabase Marketplace integration, it will have already added its
-   own variables (typically `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`, or similarly
-   named ones) — this app doesn't read those names, only `DATABASE_URL` and `DIRECT_URL`,
-   so add those two explicitly and point them at the pooled/direct strings as above even
-   if Supabase's own variables already exist alongside them.
+1. Still inside your new Vercel project, go to the **Storage** tab.
+2. Click **Create Database**.
+3. Choose **Prisma Postgres** from the marketplace options.
+4. Click **Connect** — choose to connect it to your project. Vercel/Prisma will
+   automatically add a `DATABASE_URL` environment variable to your project for you.
+5. Go to your project's **Settings → Environment Variables** and confirm `DATABASE_URL`
+   is set — that's the only connection variable this app reads. Unlike some other managed
+   Postgres providers, Prisma Postgres doesn't need a separate pooled-vs-direct
+   connection string: `DATABASE_URL` is used both for the app's normal queries and for
+   `prisma migrate deploy`.
 
 ## 3. Add the auth secret
 
@@ -81,8 +61,7 @@ by hand — the database variables came from step 2.
 1. Go to the **Deployments** tab and click **Deploy** (or push a new commit — either
    triggers a build).
 2. Wait for the build to finish (a few minutes). If it fails, check the build log — the
-   most likely cause is one of the two database environment variables being named wrong
-   or missing (see step 2.6).
+   most likely cause is `DATABASE_URL` being missing (see step 2.5).
 3. Once it succeeds, the schema still needs to be created in the new database — Vercel's
    build does **not** run migrations automatically (that's intentional: applying schema
    changes to a live database isn't something that should happen silently on every
@@ -92,18 +71,21 @@ by hand — the database variables came from step 2.
    cd canopy-country-growth-os
    npm install
    ```
-   Create a `.env` file (copy `.env.example`) and paste in the **same** `DATABASE_URL` and
-   `DIRECT_URL` values you put into Vercel (copy them from the Vercel dashboard — this is
-   the one place a real secret needs to briefly exist outside Vercel, on your own machine,
-   in a file that's already gitignored). Then run:
+   Create a `.env` file (copy `.env.example`) and paste in the **same** `DATABASE_URL`
+   value you have in Vercel (copy it from the Vercel dashboard — this is the one place a
+   real secret needs to briefly exist outside Vercel, on your own machine, in a file
+   that's already gitignored). Then run:
    ```bash
    npm run db:migrate:deploy
    ```
-   This applies every migration in `prisma/migrations/` to your real Supabase database,
-   in order, and records which ones have already run — so re-running it later (after
-   pulling a commit with a new migration) only applies what's new, not the whole schema
-   again. It connects via `DIRECT_URL`, so this step works even though the app itself
-   talks to the database through the pooled `DATABASE_URL`.
+   This applies every migration in `prisma/migrations/` to your real Prisma Postgres
+   database, in order, and records which ones have already run — so re-running it later
+   (after pulling a commit with a new migration) only applies what's new, not the whole
+   schema again.
+
+   (Alternatively, once `DATABASE_URL` is set as a GitHub Actions repository secret, the
+   same command can be run from **Actions → Migrate Production Database → Run workflow**
+   instead of from your own machine — see that workflow file for details.)
 
 ## 5. Create your first login
 
@@ -149,17 +131,11 @@ reason as the initial setup.
 
 ## Troubleshooting
 
-- **Build fails with a Prisma/query-engine error:** almost always means `DATABASE_URL` or
-  `DIRECT_URL` is missing or misnamed in Vercel's environment variables — recheck step 2.
+- **Build fails with a Prisma/query-engine error:** almost always means `DATABASE_URL` is
+  missing or misnamed in Vercel's environment variables — recheck step 2.
 - **Login page loads but sign-in always fails:** the database exists but has no `users`
   table yet, or no account exists — rerun step 4's `db:migrate:deploy` and step 5's
   `user:create`.
 - **"UntrustedHost" or similar Auth.js error:** shouldn't happen (the app sets
   `trustHost: true` for exactly this reason), but if it does, double check `AUTH_SECRET`
   is set in the Production environment specifically, not only Preview/Development.
-- **`prisma migrate deploy` hangs or errors about advisory locks:** `DIRECT_URL` is
-  pointed at the Transaction pooler instead of the Direct connection — migrations need
-  the non-pooled port-`5432` string, not the port-`6543` pooler string.
-- **Random "prepared statement already exists" errors at runtime:** `DATABASE_URL` is
-  missing `?pgbouncer=true`, or is pointed at the Direct connection instead of the
-  Transaction pooler — re-check step 2.

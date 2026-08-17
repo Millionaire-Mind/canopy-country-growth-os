@@ -1,13 +1,8 @@
 // Canopy Country Growth OS — data model
-// Postgres (Supabase, connected to Vercel via the Supabase-Vercel integration or manual
-// env vars — see docs/DEPLOYMENT.md) in production; any local Postgres in development.
-// - `url` should be Supabase's Transaction Pooler (Supavisor) connection string, port
-//   6543, with `?pgbouncer=true` appended — used for normal app queries. Serverless
-//   functions open/close connections per-invocation, and a transaction-mode pooler is
-//   what keeps that from exhausting Postgres's own connection limit.
-// - `directUrl` should be Supabase's direct connection string, port 5432 — used only for
-//   `prisma migrate`, since DDL and Prisma Migrate's advisory locks aren't reliable over
-//   a pooled/pgbouncer-style connection. See docs/DEPLOYMENT.md.
+// Postgres (Prisma Postgres, provisioned through the Vercel Marketplace) in production;
+// any local Postgres in development. `DATABASE_URL` is the single connection variable —
+// used both for normal app queries and for `prisma migrate deploy`. See
+// docs/DEPLOYMENT.md.
 
 generator client {
   provider      = "prisma-client-js"
@@ -18,9 +13,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ---------------------------------------------------------------------------
