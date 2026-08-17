@@ -1,0 +1,39 @@
+name: Migrate Production Database
+
+# Manual-only. This applies committed Prisma migrations to the production Supabase
+# database — it must never run automatically on push or pull_request.
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Apply production migrations
+        run: npx prisma migrate deploy
+        env:
+          # Prisma validates every env() reference in the schema's datasource block —
+          # including `url = env("DATABASE_URL")` — even though `migrate deploy` only
+          # ever queries through `directUrl`. Reusing the direct URL here satisfies that
+          # validation without introducing a second production secret; it's never
+          # actually used for a query by this command.
+          DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
