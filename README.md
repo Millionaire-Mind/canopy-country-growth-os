@@ -50,12 +50,12 @@ doesn't have.
 
 ## Getting started
 
-Requires a Postgres database (local Postgres for development, Supabase in production —
-see `docs/DEPLOYMENT.md`).
+Requires a Postgres database (local Postgres for development, Prisma Postgres in
+production — see `docs/DEPLOYMENT.md`).
 
 ```bash
 npm install
-cp .env.example .env      # then fill in DATABASE_URL, DIRECT_URL, AUTH_SECRET
+cp .env.example .env      # then fill in DATABASE_URL, AUTH_SECRET
 npm run db:migrate:deploy # applies the committed migration history to your Postgres database
 npm run db:seed           # loads SAMPLE DATA + researched business facts
 npm run user:create -- --email you@example.com --name "Your Name"   # prints a one-time password
@@ -115,7 +115,7 @@ access this would eventually replace.
 
 ## Tech stack
 
-Next.js 16 (App Router, TypeScript) · Prisma + Postgres (Supabase in production, any
-Postgres locally) · Auth.js (Credentials + JWT, per-user accounts) · Tailwind CSS. No external
+Next.js 16 (App Router, TypeScript) · Prisma + Postgres (Prisma Postgres in production,
+any Postgres locally) · Auth.js (Credentials + JWT, per-user accounts) · Tailwind CSS. No external
 services beyond the database, no background jobs, no ML pipeline — see
 `docs/ARCHITECTURE.md` §1 for why.

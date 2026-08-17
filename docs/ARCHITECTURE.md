@@ -37,9 +37,9 @@ extend, and deploy without a platform team. No microservices, no queues, no ML p
   the dashboard UI and its API routes. Avoids standing up a separate backend for a V1.
   (Started on 14.2 during scaffolding; upgraded immediately after `npm install` flagged
   critical CVEs on that line with no non-breaking patch — see §9.)
-- **Database:** Postgres via Prisma ORM (Supabase in production, connected to Vercel
-  either through the Marketplace integration or manually-set connection strings — see
-  `docs/DEPLOYMENT.md`; any local Postgres in development). Originally scaffolded on
+- **Database:** Postgres via Prisma ORM (Prisma Postgres in production, provisioned
+  through the Vercel Marketplace — see `docs/DEPLOYMENT.md`; any local Postgres in
+  development). Originally scaffolded on
   SQLite for zero-dependency local iteration — deliberately designed so the swap to
   Postgres was a datasource change, not a rewrite (see §11 for the actual production
   readiness pass and why SQLite can't run on Vercel at all). `Lead.status` remains a
@@ -372,14 +372,16 @@ review were addressed — both by explicit owner decision, not silently:
 writable filesystem — every invocation can land on a different, ephemeral container, so
 a SQLite file cannot serve as a shared source of truth in that environment. This isn't a
 tuning issue, it's a hard architectural blocker. The fix: `prisma/schema.prisma`'s
-datasource is now `postgresql`, with two connection strings — `DATABASE_URL` (pooled,
-for normal app queries) and `DIRECT_URL` (unpooled, used for migrations, since DDL over a
-pooled/pgbouncer-style connection is unreliable). Production uses Supabase Postgres —
-`DATABASE_URL` is Supabase's Transaction pooler (Supavisor, port 6543, with
-`?pgbouncer=true`) and `DIRECT_URL` is its Direct connection (port 5432) — see
-`docs/DEPLOYMENT.md` for exact steps. (This was Neon in an earlier pass; the swap was a
-connection-string change only, since both are standard Postgres behind Prisma's
-`postgresql` provider — no schema, query, or application-code change was needed.)
+datasource is now `postgresql`, with a single `DATABASE_URL` connection string used both
+for normal app queries and for `prisma migrate deploy`. Production uses Prisma Postgres,
+provisioned through the Vercel Marketplace — see `docs/DEPLOYMENT.md` for exact steps.
+(This was Neon, then Supabase, in earlier passes; each swap was a connection-configuration
+change only, since all three are standard Postgres behind Prisma's `postgresql` provider
+— no schema, query, or application-code change was needed. Supabase's setup needed a
+separate pooled `DATABASE_URL` and unpooled `directUrl`/`DIRECT_URL`, since DDL and
+Prisma Migrate's advisory locks aren't reliable over its pgbouncer-style pooled
+connection; Prisma Postgres doesn't need that split, so `directUrl` was removed from the
+datasource block entirely.)
 `generator client` also gained `binaryTargets = ["native", "rhel-openssl-3.0.x"]`, a
 known requirement for Prisma's query engine to be found on Vercel's runtime.
 
